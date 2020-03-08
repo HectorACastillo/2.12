@@ -1,6 +1,6 @@
 m_bottle = 0.013; % kg
 d_throw  = 5;   % meters
-g = -9.81
+g = -9.81;
 V_max = 2.5;
 theta = pi/4;
 

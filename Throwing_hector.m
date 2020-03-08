@@ -1,0 +1,169 @@
+%% Parameters
+global g L1 L2 L3 L4 w_max T_max M I 
+
+g = -9.81;
+
+L1 = 0.2;
+L2 = 0.26;
+L3 = 0.3;
+L4 = 0.1;
+
+M = [4, 1, 1, 1.5]';
+
+I = [M(1)*0.3^2/2, M(2)*L2^2/12, M(3)*L3^2/12, M(4)*L4/12]';
+
+w_max = [2*pi, 2*pi, 2*pi]';
+T_max = [28, 28, 28]';
+
+
+%% Environment
+global A B C D E box_height height_margin
+A = [.85 .5 0]';
+B = [.85 0 0]';
+C = [0 0 0]';
+D = [0 .35 0]';
+E = [.25 .5 0]';
+
+R_y = -.1;
+R_x = (2*R_y*(D(2)-A(2)) + norm(A)^2 - norm(D)^2)/(2*(A(1)-D(1)));
+Robot_Offset = [R_x R_y 0]';
+A = A-Robot_Offset;
+B = B-Robot_Offset;
+C = C-Robot_Offset;
+D = D-Robot_Offset;
+E = E-Robot_Offset;
+
+% target location
+Xt = [0, 1, .15]';
+
+box_height = .2;
+height_margin = .1;
+
+% end-effector location
+Xe = [0, .25, .12]';
+
+Ve = getVelocity(Xe, Xt);
+[t1, t2, t3, t4] = IK(Xe);
+Theta_dot = Jacobian(t1, t2, t3)\Ve;
+accelTime2 = calcAccelTime(Theta_dot(2), 2, Xe);
+
+plotArm(t1, t2, t3, Xe)
+plotThrow(Ve, Xe, Xt)
+
+%% Jacobian
+function J = Jacobian(t1, t2, t3)
+    global L2 L3
+    J = [-L2*sin(t2)*sin(t1)-L3*sin(t2+t3)*sin(t1), L2*cos(t2)*cos(t1)+L3*cos(t2+t3)*cos(t1), L3*cos(t2+t3)*cos(t1);
+          L2*sin(t2)*cos(t1)+L3*sin(t2+t3)*cos(t1), L2*cos(t2)*sin(t1)+L3*cos(t2+t3)*sin(t1), L3*cos(t2+t3)*sin(t1);
+                                                 0,                -L2*sin(t2)+L3*sin(t2+t3),        -L3*sin(t2+t3)];
+end
+
+%% Inverse Kinematics
+function [t1, t2, t3, t4] = IK(Xe)
+    global L1 L2 L3 L4
+    X4 = Xe + [0 0 L4]';
+    t1 = atan(Xe(2)/Xe(1));
+    if t1 < 0
+        t1 = t1+pi;
+    end
+    X1 = [0 0 L1]';
+    r = norm(X4-X1);
+    alpha = acos((r^2+L2^2-L3^2)/(2*r*L2));
+    t2 = pi-alpha-acos((X1(3)-X4(3))/r);
+    beta = acos((L2^2+L3^2-r^2)/(2*L2*L3));
+    t3 = pi-beta;
+    gamma = acos((r^2+L3^2-L2^2)/(2*r*L3));
+    t4 = pi-gamma-asin((X1(3)-X4(3))/r)-pi/2;
+end
+
+function Ve = getVelocity(Xe, Xt)
+    global g A E box_height height_margin
+    
+    % turn into a 2D problem
+    xe = norm(Xe(1:2));
+    ze = Xe(3);
+    
+    xt = norm(Xt(1:2));
+    zt = Xt(3);
+    
+    [a, b] = polyxpoly([A(1),E(1)], [A(2),E(2)], [Xe(1),Xt(1)], [Xe(2),Xt(2)]);
+    xw = norm([a b]);
+    zw = box_height + height_margin;
+    
+    x_dot_e = sqrt(((g/2)*(xw-xe)*(xw-xt))/(zw-ze-((xw-xe)/(xt-xe))*(zt-ze)));
+    z_dot_e = (zt - (g/2)*((xt-xe)/x_dot_e)^2 - ze)/((xt-xe)/x_dot_e);
+    Ve = [x_dot_e*cos(atan((Xt(2)/Xe(2))/(Xt(1)-Xe(1)))), x_dot_e*sin(atan((Xt(2)/Xe(2))/(Xt(1)-Xe(1)))), z_dot_e]';
+end
+
+function plotArm(t1, t2, t3, X_e)
+    global A B C D E L1 L2 L3 L4
+    figure(1)
+    hold off
+    plot3([C(1) E(1) E(1) D(1) C(1)], [C(2) C(2) D(2) D(2) C(2)], [0 0 0 0 0])
+    hold on
+    plot3([E(1) B(1) A(1) E(1) E(1)], [B(2) B(2) A(2) E(2) B(2)], [0 0 0 0 0])
+
+    X_1 = [0 0 L1]';
+    X_2 = X_1 + [L2*cos(t1)*sin(t2) L2*sin(t1)*sin(t2) L2*cos(t2)]';
+    X_3 = X_2 + [L3*cos(t1)*sin(t2+t3) L3*sin(t1)*sin(t2+t3) L3*cos(t2+t3)]';
+    X_4 = X_3 + [0 0 -L4]';
+    plot3([0 X_1(1)], [0 X_1(2)], [0 X_1(3)], 'Color', 'red')
+    plot3([X_1(1) X_2(1)], [X_1(2) X_2(2)], [X_1(3) X_2(3)], 'Color', 'red')
+    plot3([X_2(1) X_3(1)], [X_2(2) X_3(2)], [X_2(3) X_3(3)], 'Color', 'red');
+    plot3([X_3(1) X_4(1)], [X_3(2) X_4(2)], [X_3(3) X_4(3)], 'Color', 'red');
+%     plot3([X_4(1) X_e(1)], [X_4(2) X_e(2)], [X_4(3) X_e(3)], 'Color', 'red');
+end
+
+function plotThrow(Ve, Xe, Xt)
+    global g 
+    xe = norm(Xe(1:2));
+    xt = norm(Xt(1:2));
+    x_dot_e = norm(Ve(1:2));
+    
+    ze = Xe(3);
+    z_dot_e = Ve(3);
+    
+    tt = (xt-xe)/x_dot_e;
+    Xp = [];
+    Zp = [];
+    
+    for t = linspace(0,tt)
+        Xp = [Xp x_dot_e*t + xe];
+        Zp = [Zp (g/2)*t^2 + z_dot_e*t + ze];
+    end
+    figure(2)
+    hold off
+    plot(Xp, Zp)
+    axis equal
+    xlim([0 xe+xt]);
+end
+
+function t = calcAccelTime(w, i, Xe)
+    global L1 L2 L3 L4 I M T_max w_max g
+    w = abs(w);
+    % verify commanded velocity does not exceed motor capabilties
+    if w > w_max(i)
+        fprintf('[WARNING]: target w exceeds maximum\n')
+    end
+    
+    % calculate joint angles
+    [t1, t2, t3] = IK(Xe);
+    
+    % create matrix of joint position vectors in xyz space
+    X = [                                         0,                                          0,                                     0;
+                                                  0,                                          0,                                    L1;
+                                 L2*cos(t1)*sin(t2),                         L2*sin(t1)*sin(t2),                       L1 + L2*cos(t2);
+         L2*cos(t1)*sin(t2) + L3*cos(t1)*sin(t2+t3), L2*sin(t1)*sin(t2) + L3*sin(t1)*sin(t2+t3),       L1 + L2*cos(t2) + L3*cos(t2+t3);
+         L2*cos(t1)*sin(t2) + L3*cos(t1)*sin(t2+t3), L2*sin(t1)*sin(t2) + L3*sin(t1)*sin(t2+t3), L1 + L2*cos(t2) + L3*cos(t2+t3) - L4];
+    
+    % calculate mement of inertia for joint i
+    Ii = 0;
+    T_load = 0;
+    for n = i:4
+        Ii = Ii + I(n) + M(n)*norm((X(n+1)-X(n))/2 - X(n));
+        T_load = T_load + cross((X(n+1,:)-X(n,:))/2-X(n,:), M(n)*[0 0 g]) * [-1 0 0]';
+    end
+    
+    % calculate time to accelerate to commanded velocity
+    t = w*Ii/(T_max(i)-T_load-(T_max(i)/w_max(i))*w);
+end
