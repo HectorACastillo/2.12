@@ -4,16 +4,17 @@ global g L1 L2 L3 L4 w_max T_max M I
 g = -9.81;
 
 L1 = 0.2;
-L2 = 0.26;
-L3 = 0.3;
+L2 = 0.3;
+L3 = 0.5;
 L4 = 0.1;
 
 M = [4, 1, 1, 1.5]';
 
 I = [M(1)*0.3^2/2, M(2)*L2^2/12, M(3)*L3^2/12, M(4)*L4/12]';
 
-w_max = [2*pi, 2*pi, 2*pi]';
-T_max = [28, 28, 28]';
+R = [1, 1, 2]';
+w_max = [2*pi, 2*pi, 2*pi]'.*R;
+T_max = [28, 28, 28]'./R;
 
 
 %% Environment
@@ -40,15 +41,17 @@ box_height = .2;
 height_margin = .1;
 
 % end-effector location
-Xe = [0, .25, .12]';
+Xe = [-.2, .2, .1]';
 
 Ve = getVelocity(Xe, Xt);
 [t1, t2, t3, t4] = IK(Xe);
 Theta_dot = Jacobian(t1, t2, t3)\Ve;
 accelTime2 = calcAccelTime(Theta_dot(2), 2, Xe);
 
-plotArm(t1, t2, t3, Xe)
+plotArm(t1, t2, t3)
 plotThrow(Ve, Xe, Xt)
+
+montecarloThrowWS(5000, Xt)
 
 %% Jacobian
 function J = Jacobian(t1, t2, t3)
@@ -66,36 +69,39 @@ function [t1, t2, t3, t4] = IK(Xe)
     if t1 < 0
         t1 = t1+pi;
     end
-    X1 = [0 0 L1]';
-    r = norm(X4-X1);
+    X2 = [0 0 L1]';
+    r = norm(X4-X2);
     alpha = acos((r^2+L2^2-L3^2)/(2*r*L2));
-    t2 = pi-alpha-acos((X1(3)-X4(3))/r);
+    t2 = pi-alpha-acos((X2(3)-X4(3))/r);
     beta = acos((L2^2+L3^2-r^2)/(2*L2*L3));
     t3 = pi-beta;
     gamma = acos((r^2+L3^2-L2^2)/(2*r*L3));
-    t4 = pi-gamma-asin((X1(3)-X4(3))/r)-pi/2;
+    t4 = pi-gamma-asin((X2(3)-X4(3))/r)-pi/2;
 end
 
 function Ve = getVelocity(Xe, Xt)
     global g A E box_height height_margin
     
     % turn into a 2D problem
-    xe = norm(Xe(1:2));
+    xe = 0;
     ze = Xe(3);
     
-    xt = norm(Xt(1:2));
+    xt = norm(Xt(1:2)-Xe(1:2));
     zt = Xt(3);
     
     [a, b] = polyxpoly([A(1),E(1)], [A(2),E(2)], [Xe(1),Xt(1)], [Xe(2),Xt(2)]);
-    xw = norm([a b]);
+    xw = norm([a b]'-Xe(1:2));
     zw = box_height + height_margin;
-    
     x_dot_e = sqrt(((g/2)*(xw-xe)*(xw-xt))/(zw-ze-((xw-xe)/(xt-xe))*(zt-ze)));
     z_dot_e = (zt - (g/2)*((xt-xe)/x_dot_e)^2 - ze)/((xt-xe)/x_dot_e);
-    Ve = [x_dot_e*cos(atan((Xt(2)/Xe(2))/(Xt(1)-Xe(1)))), x_dot_e*sin(atan((Xt(2)/Xe(2))/(Xt(1)-Xe(1)))), z_dot_e]';
+    theta = atan((Xt(2)-Xe(2))/(Xt(1)-Xe(1)));
+    if theta < 0
+        theta = theta+pi;
+    end
+    Ve = [x_dot_e*cos(theta), x_dot_e*sin(theta), z_dot_e]';
 end
 
-function plotArm(t1, t2, t3, X_e)
+function plotArm(t1, t2, t3)
     global A B C D E L1 L2 L3 L4
     figure(1)
     hold off
@@ -111,17 +117,16 @@ function plotArm(t1, t2, t3, X_e)
     plot3([X_1(1) X_2(1)], [X_1(2) X_2(2)], [X_1(3) X_2(3)], 'Color', 'red')
     plot3([X_2(1) X_3(1)], [X_2(2) X_3(2)], [X_2(3) X_3(3)], 'Color', 'red');
     plot3([X_3(1) X_4(1)], [X_3(2) X_4(2)], [X_3(3) X_4(3)], 'Color', 'red');
-%     plot3([X_4(1) X_e(1)], [X_4(2) X_e(2)], [X_4(3) X_e(3)], 'Color', 'red');
 end
 
 function plotThrow(Ve, Xe, Xt)
     global g 
-    xe = norm(Xe(1:2));
-    xt = norm(Xt(1:2));
-    x_dot_e = norm(Ve(1:2));
+    xe = 0;
+    xt = norm(Xt(1:2)-Xe(1:2));
+    x_dot_e = norm(Ve(1:2))
     
     ze = Xe(3);
-    z_dot_e = Ve(3);
+    z_dot_e = Ve(3)
     
     tt = (xt-xe)/x_dot_e;
     Xp = [];
@@ -131,6 +136,8 @@ function plotThrow(Ve, Xe, Xt)
         Xp = [Xp x_dot_e*t + xe];
         Zp = [Zp (g/2)*t^2 + z_dot_e*t + ze];
     end
+    %Xp
+    %Zp
     figure(2)
     hold off
     plot(Xp, Zp)
@@ -166,4 +173,41 @@ function t = calcAccelTime(w, i, Xe)
     
     % calculate time to accelerate to commanded velocity
     t = w*Ii/(T_max(i)-T_load-(T_max(i)/w_max(i))*w);
+end
+
+function montecarloThrowWS(n, Xt)
+    global A B C D E box_height w_max
+    Xe_set = rand(n, 3);
+    Xe_set(:,1) = Xe_set(:,1)*(A(1)-E(1))+E(1);
+    Xe_set(:,2) = Xe_set(:,2)*(A(2)-B(2))+B(2);
+    Xe_set(:,3) = Xe_set(:,3)*box_height;
+    
+    figure(3)
+    hold off
+    plot3([C(1) E(1) E(1) D(1) C(1)], [C(2) C(2) D(2) D(2) C(2)], [0 0 0 0 0])
+    hold on
+    plot3([E(1) B(1) A(1) E(1) E(1)], [B(2) B(2) A(2) E(2) B(2)], [0 0 0 0 0])
+    plot3(Xt(1), Xt(2), Xt(3), 'bx');
+    axis equal
+    for i = 1:n
+        Ve = getVelocity(Xe_set(i,:), Xt);
+        [t1, t2, t3, t4] = IK(Xe_set(i,:)');
+        Theta_dot = Jacobian(t1, t2, t3)\Ve;
+        valid = 1;
+        if abs(Theta_dot(1))>w_max(1)
+            valid = 0;
+            plot3(Xe_set(i,1),Xe_set(i,2),Xe_set(i,3), 'yx')
+        end
+        if abs(Theta_dot(2))>w_max(2)
+            valid = 0;
+            plot3(Xe_set(i,1),Xe_set(i,2),Xe_set(i,3), 'mx')
+        end
+        if abs(Theta_dot(3))>w_max(3)
+            valid = 0;
+            plot3(Xe_set(i,1),Xe_set(i,2),Xe_set(i,3), 'rx')
+        end
+        if valid
+            plot3(Xe_set(i,1),Xe_set(i,2),Xe_set(i,3), 'go')
+        end
+    end
 end
